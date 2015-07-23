@@ -23,6 +23,23 @@ the pickle protocol, set ``carbon.mode`` to ``pickle``:
 
     carbon.mode: pickle
 
+You can also specify the pattern used for the metric base path (except for virt modules metrics):
+
+.. code-block:: yaml
+
+    carbon.metric_base_pattern: carbon.[minion_id].[module].[function]
+
+These tokens can used :
+* ``[module]``: salt module
+* ``[function]``: salt function
+* ``[minion_id]``: minion id
+
+Default is :
+
+.. code-block:: yaml
+
+    carbon.metric_base_pattern: [module].[function].[minion_id]
+
 Carbon settings may also be configured as:
 
 .. code-block:: yaml
@@ -32,6 +49,7 @@ Carbon settings may also be configured as:
       port: <carbon port>
       skip_on_error: True
       mode: (pickle|text)
+      metric_base_pattern: <pattern> | [module].[function].[minion_id]
 
 Alternative configuration values can be used by prefacing the configuration.
 Any values not found in the alternative configuration will be pulled from
@@ -44,6 +62,7 @@ the default location:
       port: <carbon port>
       skip_on_error: True
       mode: (pickle|text)
+      metric_base_pattern: <pattern> | [module].[function].[minion_id]
 
 To use the carbon returner, append '--return carbon' to the salt command.
 
@@ -93,7 +112,8 @@ def _get_options(ret):
     attrs = {'host': 'host',
              'port': 'port',
              'skip': 'skip_on_error',
-             'mode': 'mode'}
+             'mode': 'mode',
+             'metric_base_pattern': 'metric_base_pattern'}
 
     _options = salt.returners.get_returner_options(__virtualname__,
                                                    ret,
@@ -199,7 +219,7 @@ def returner(ret):
     '''
     Return data to a remote carbon server using the text metric protocol
 
-    Each metric will look like::
+    Unless carbon.metric_base_pattern is set in minion configuration, each metric will look like::
 
         [module].[function].[minion_id].[metric path [...]].[metric name]
 
@@ -232,7 +252,13 @@ def returner(ret):
     # module since then we will get stable metric bases even if the VM is
     # migrate from host to host
     if not metric_base.startswith('virt.'):
-        metric_base += '.' + ret['id'].replace('.', '_')
+        minion_id = ret['id'].replace('.', '_')
+        if metric_base_pattern is not None:
+            [module, function] = ret['fun'].split('.')
+            metric_base = metric_base_pattern.replace("[module]", module).replace("[function]", function).replace("[minion_id]", minion_id)
+        else:
+            metric_base += '.' + minion_id
+        log.debug('Carbon metric_base : %s', metric_base)
 
     metrics = []
     _walk(metric_base, saltdata, metrics, timestamp, skip)
